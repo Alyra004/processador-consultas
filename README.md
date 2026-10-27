@@ -193,18 +193,6 @@ WHERE Produto.Preco > 100 AND Categoria.idCategoria = 2
 | Heurística de redução de atributos apresentada no grafo | 1,0 | `otimizador.py`, `gerador_grafo.py` |
 | Demais heurísticas | 1,0 | `otimizador.py` |
 
-## Cronograma de Entregas
-
-| Entrega | Data |
-|---|---|
-| Interface gráfica existente e funcional | 15/10/26 |
-| A string é parseada | 15/10/26 |
-| Campos e comandos errados são validados | 15/10/26 |
-| Conversão para álgebra relacional | 20/10/26 |
-| Grafo não otimizado | 20/10/26 |
-| Aplicação da heurística de projeção e seleção | 22/10/26 |
-| Demais heurísticas | 27/10/26 |
-
 ## Limitações
 
 - Não há suporte a aliases de tabelas (`FROM Cliente c`) nem a `OR`, `LIKE`, `IN`, subconsultas, `GROUP BY` ou `ORDER BY`, conforme o escopo do trabalho
