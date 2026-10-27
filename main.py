@@ -1,8 +1,12 @@
 import tkinter as tk
 import os
+import re
 from dotenv import load_dotenv
 from parser_sql import ParserSQL
 from validador_db import ValidadorDB
+from algebra_relacional import AlgebraRelacional
+from gerador_grafo import GeradorGrafo
+from otimizador import OtimizadorConsulta
 
 load_dotenv()
 
@@ -10,15 +14,89 @@ janela = tk.Tk()
 janela.title("Processador de Consultas")
 janela.geometry("1000x800")
 
-tk.Label(janela, text="Digite sua consulta SQL:").pack(pady=10)
-caixa_texto = tk.Text(janela, height=8, width=80)
+scroll_pagina = tk.Scrollbar(janela, orient=tk.VERTICAL)
+scroll_pagina.pack(side=tk.RIGHT, fill=tk.Y)
+
+canvas_pagina = tk.Canvas(janela, highlightthickness=0, yscrollcommand=scroll_pagina.set)
+canvas_pagina.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+scroll_pagina.config(command=canvas_pagina.yview)
+
+conteudo = tk.Frame(canvas_pagina)
+id_conteudo = canvas_pagina.create_window((0, 0), window=conteudo, anchor="nw")
+
+def ajustar_area_rolavel(event):
+    canvas_pagina.configure(scrollregion=canvas_pagina.bbox("all"))
+
+def ajustar_largura_conteudo(event):
+    canvas_pagina.itemconfig(id_conteudo, width=event.width)
+
+def rolar_pagina(event):
+    canvas_pagina.yview_scroll(int(-event.delta / 120), "units")
+
+conteudo.bind("<Configure>", ajustar_area_rolavel)
+canvas_pagina.bind("<Configure>", ajustar_largura_conteudo)
+janela.bind_all("<MouseWheel>", rolar_pagina)
+
+frame_dir = tk.Frame(conteudo)
+frame_dir.pack(side=tk.RIGHT, fill=tk.Y, padx=10)
+
+frame_esq = tk.Frame(conteudo)
+frame_esq.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+def criar_quadro_grafo(pai, titulo):
+    tk.Label(pai, text=titulo, font=("Arial", 10, "bold")).pack()
+
+    frame_quadro = tk.Frame(pai, relief=tk.SUNKEN, bd=2)
+    frame_quadro.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+    barra_y = tk.Scrollbar(frame_quadro, orient=tk.VERTICAL)
+    barra_y.pack(side=tk.RIGHT, fill=tk.Y)
+    barra_x = tk.Scrollbar(frame_quadro, orient=tk.HORIZONTAL)
+    barra_x.pack(side=tk.BOTTOM, fill=tk.X)
+
+    canvas = tk.Canvas(frame_quadro, bg="white", height=600,
+                       yscrollcommand=barra_y.set,
+                       xscrollcommand=barra_x.set)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    barra_y.config(command=canvas.yview)
+    barra_x.config(command=canvas.xview)
+    return canvas
+
+canvas_nao_otimizado = criar_quadro_grafo(frame_esq, "Grafo Não Otimizado")
+canvas_otimizado = criar_quadro_grafo(frame_esq, "Grafo Otimizado")
+
+tk.Label(frame_dir, text="Digite sua consulta SQL:").pack(pady=10)
+caixa_texto = tk.Text(frame_dir, height=8, width=50)
 caixa_texto.pack()
 
 def atualizar_resultado(texto):
     caixa_resultado.config(state=tk.NORMAL)
     caixa_resultado.delete("1.0", tk.END)
-    caixa_resultado.insert(tk.END, texto)
+    caixa_resultado.tag_configure("subscrito", offset="-4", font=("Arial", 9, "italic"))
+    partes = re.split(r'(_\{.*?\})', texto)
+    
+    for parte in partes:
+        if parte.startswith('_{') and parte.endswith('}'):
+            texto_interno = parte[2:-1]
+            
+            caixa_resultado.insert(tk.END, texto_interno + " ", "subscrito")
+        else:
+            caixa_resultado.insert(tk.END, parte)
+            
     caixa_resultado.config(state=tk.DISABLED)
+
+def desenhar_grafo(resultado, dados_otimizados):
+    # Grafo Não Otimizado
+    gerador = GeradorGrafo(canvas_nao_otimizado, resultado)
+    gerador.desenhar_nao_otimizado()
+    canvas_nao_otimizado.xview_moveto(0)
+    canvas_nao_otimizado.yview_moveto(0)
+    
+    # Grafo Otimizado
+    gerador_otim = GeradorGrafo(canvas_otimizado, resultado)
+    gerador_otim.desenhar_otimizado(dados_otimizados)
+    canvas_otimizado.xview_moveto(0)
+    canvas_otimizado.yview_moveto(0)
 
 def iniciar_processamento():
     consulta_digitada = caixa_texto.get("1.0", tk.END).strip()
@@ -41,31 +119,25 @@ def iniciar_processamento():
         texto_saida = "❌ ERROS DE VALIDAÇÃO ENCONTRADOS:\n\n"
         for erro in erros:
             texto_saida += f"- {erro}\n"
+        atualizar_resultado(texto_saida)
     else:
-        texto_saida = "✅ CONSULTA VÁLIDA COM SUCESSO!\n\n"
-        texto_saida += f"Resultado do Parse:\n{resultado}"
+        conversor_algebra = AlgebraRelacional(resultado)
+        expressao_matematica = conversor_algebra.gerar_expressao_completa()
         
-    atualizar_resultado(texto_saida)
+        texto_saida = "✅ CONSULTA VÁLIDA COM SUCESSO!\n\n"
+        texto_saida += f"Resultado do Parse:\n{resultado}\n\n"
+        texto_saida += f"Álgebra Relacional:\n{expressao_matematica}"
+        atualizar_resultado(texto_saida)
+        otimizador = OtimizadorConsulta(resultado)
+        dados_otimizados = otimizador.otimizar()
+        
+        desenhar_grafo(resultado, dados_otimizados)
+        
 
-tk.Button(janela, text="Processar", command=iniciar_processamento).pack(pady=10)
+tk.Button(frame_dir, text="Processar", command=iniciar_processamento).pack(pady=10)
 
-tk.Label(janela, text="Resultado do Processamento:").pack(pady=5)
-caixa_resultado = tk.Text(janela, height=8, width=80, state=tk.DISABLED, bg="#f0f0f0")
+tk.Label(frame_dir, text="Resultado do Processamento:").pack(pady=5)
+caixa_resultado = tk.Text(frame_dir, height=25, width=50, state=tk.DISABLED, bg="#f0f0f0", wrap=tk.WORD)
 caixa_resultado.pack()
-
-frame_grafos = tk.Frame(janela)
-frame_grafos.pack(pady=15, fill=tk.BOTH, expand=True, padx=20)
-
-frame_esq = tk.Frame(frame_grafos)
-frame_esq.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=10)
-tk.Label(frame_esq, text="Grafo Não Otimizado", font=("Arial", 10, "bold")).pack()
-canvas_nao_otimizado = tk.Canvas(frame_esq, bg="white", relief=tk.SUNKEN, bd=2)
-canvas_nao_otimizado.pack(fill=tk.BOTH, expand=True)
-
-frame_dir = tk.Frame(frame_grafos)
-frame_dir.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=10)
-tk.Label(frame_dir, text="Grafo Otimizado", font=("Arial", 10, "bold")).pack()
-canvas_otimizado = tk.Canvas(frame_dir, bg="white", relief=tk.SUNKEN, bd=2)
-canvas_otimizado.pack(fill=tk.BOTH, expand=True)
 
 janela.mainloop()

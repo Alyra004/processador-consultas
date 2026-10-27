@@ -47,9 +47,11 @@ class ValidadorDB:
             if campo == "*":
                 continue 
             
+            campo_real = campo.split(".")[-1].strip()
+            
             campo_valido = False
             for tabela in tabelas:
-                if self.validar_campo(tabela, campo):
+                if self.validar_campo(tabela, campo_real):
                     campo_valido = True
                     break
             
