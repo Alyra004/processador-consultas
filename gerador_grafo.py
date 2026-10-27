@@ -132,7 +132,7 @@ class GeradorGrafo:
             self.canvas.configure(scrollregion=(bbox[0] - 30, bbox[1] - 30, bbox[2] + 30, bbox[3] + 30))
 
     def desenhar_otimizado(self, dados_otimizados):
-        tabelas = self.dados.get("FROM", []) or ["(vazio)"]
+        tabelas = dados_otimizados.get("ordem_tabelas") or self.dados.get("FROM", []) or ["(vazio)"]
         
         selecoes = dados_otimizados.get("selecoes", {})
         projecoes = dados_otimizados.get("projecoes", {})

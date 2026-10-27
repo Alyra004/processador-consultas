@@ -44,3 +44,31 @@ class AlgebraRelacional:
         passo_2_selecao = self.montar_bloco_selecao(passo_1_tabelas)
         passo_final = self.montar_bloco_projecao(passo_2_selecao)
         return passo_final
+
+    def montar_folha_otimizada(self, tabela, dados_otimizados):
+        texto = tabela
+        condicoes = dados_otimizados.get("selecoes", {}).get(tabela, [])
+        if condicoes:
+            texto = f"{self.simbolo_selecao}_{{{' AND '.join(condicoes)}}}({texto})"
+        colunas = dados_otimizados.get("projecoes", {}).get(tabela, [])
+        if colunas and "*" not in self.campos_select:
+            texto = f"{self.simbolo_projecao}_{{{', '.join(colunas)}}}({texto})"
+        return texto
+
+    def gerar_expressao_otimizada(self, dados_otimizados):
+        ordem = dados_otimizados.get("ordem_tabelas") or self.tabelas_from
+        if not ordem:
+            return ""
+
+        juncoes = dados_otimizados.get("juncoes", [])
+        texto = self.montar_folha_otimizada(ordem[0], dados_otimizados)
+
+        for k, tabela in enumerate(ordem[1:]):
+            folha = self.montar_folha_otimizada(tabela, dados_otimizados)
+            condicao = juncoes[k]["condicao"] if k < len(juncoes) else ""
+            if condicao:
+                texto = f"({texto} {self.simbolo_juncao}_{{{condicao}}} {folha})"
+            else:
+                texto = f"({texto} {self.simbolo_cartesiano} {folha})"
+
+        return self.montar_bloco_projecao(texto)

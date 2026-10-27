@@ -7,6 +7,7 @@ from validador_db import ValidadorDB
 from algebra_relacional import AlgebraRelacional
 from gerador_grafo import GeradorGrafo
 from otimizador import OtimizadorConsulta
+from processador_consultas import ProcessadorConsultas
 
 load_dotenv()
 
@@ -31,6 +32,8 @@ def ajustar_largura_conteudo(event):
     canvas_pagina.itemconfig(id_conteudo, width=event.width)
 
 def rolar_pagina(event):
+    if isinstance(event.widget, tk.Text):
+        return
     canvas_pagina.yview_scroll(int(-event.delta / 120), "units")
 
 conteudo.bind("<Configure>", ajustar_area_rolavel)
@@ -124,12 +127,28 @@ def iniciar_processamento():
         conversor_algebra = AlgebraRelacional(resultado)
         expressao_matematica = conversor_algebra.gerar_expressao_completa()
         
-        texto_saida = "✅ CONSULTA VÁLIDA COM SUCESSO!\n\n"
-        texto_saida += f"Resultado do Parse:\n{resultado}\n\n"
-        texto_saida += f"Álgebra Relacional:\n{expressao_matematica}"
-        atualizar_resultado(texto_saida)
         otimizador = OtimizadorConsulta(resultado)
         dados_otimizados = otimizador.otimizar()
+        expressao_otimizada = conversor_algebra.gerar_expressao_otimizada(dados_otimizados)
+        
+        texto_saida = "✅ CONSULTA VÁLIDA COM SUCESSO!\n\n"
+        texto_saida += f"Resultado do Parse:\n{resultado}\n\n"
+        texto_saida += f"Álgebra Relacional:\n{expressao_matematica}\n\n"
+        texto_saida += f"Álgebra Relacional Otimizada:\n{expressao_otimizada}\n\n"
+        
+        texto_saida += "Ordem das folhas (restritividade + junções sem produto cartesiano):\n"
+        seletividades = dados_otimizados.get("seletividades", {})
+        for i, tabela in enumerate(dados_otimizados.get("ordem_tabelas", []), start=1):
+            texto_saida += f"{i}. {tabela} (seletividade estimada: {seletividades.get(tabela, 1.0):.3f})\n"
+        
+        for juncao in dados_otimizados.get("juncoes", []):
+            if juncao["cartesiano"]:
+                texto_saida += f"⚠ Produto cartesiano inevitável com {juncao['nova_tabela']} (sem predicado de junção)\n"
+        
+        processador = ProcessadorConsultas(resultado, dados_otimizados)
+        texto_saida += f"\nPlano de Execução:\n{processador.gerar_texto_plano()}"
+        
+        atualizar_resultado(texto_saida)
         
         desenhar_grafo(resultado, dados_otimizados)
         
@@ -137,7 +156,15 @@ def iniciar_processamento():
 tk.Button(frame_dir, text="Processar", command=iniciar_processamento).pack(pady=10)
 
 tk.Label(frame_dir, text="Resultado do Processamento:").pack(pady=5)
-caixa_resultado = tk.Text(frame_dir, height=25, width=50, state=tk.DISABLED, bg="#f0f0f0", wrap=tk.WORD)
-caixa_resultado.pack()
+frame_resultado = tk.Frame(frame_dir)
+frame_resultado.pack()
+
+barra_resultado = tk.Scrollbar(frame_resultado, orient=tk.VERTICAL)
+barra_resultado.pack(side=tk.RIGHT, fill=tk.Y)
+
+caixa_resultado = tk.Text(frame_resultado, height=25, width=50, state=tk.DISABLED, bg="#f0f0f0", wrap=tk.WORD,
+                          yscrollcommand=barra_resultado.set)
+caixa_resultado.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+barra_resultado.config(command=caixa_resultado.yview)
 
 janela.mainloop()
