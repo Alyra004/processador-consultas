@@ -123,9 +123,9 @@ class GeradorGrafo:
             self._linha(x_filho, topo_filho, x_filho, base_sel)
             topo_filho = topo_sel
 
-        #if campos != ["*"]:
-        topo_proj, base_proj = self._desenhar_no(x_filho, y_proj, "π", ", ".join(campos))
-        self._linha(x_filho, topo_filho, x_filho, base_proj)
+        if campos != ["*"]:
+            topo_proj, base_proj = self._desenhar_no(x_filho, y_proj, "π", ", ".join(campos))
+            self._linha(x_filho, topo_filho, x_filho, base_proj)
 
         bbox = self.canvas.bbox("all")
         if bbox:
@@ -227,8 +227,9 @@ class GeradorGrafo:
         else:
             x_filho, topo_filho = x_pilares[0], topos_pilares[0]
 
-        topo_proj_final, base_proj_final = self._desenhar_no(x_filho, 40, "π", ", ".join(campos_finais))
-        self._linha(x_filho, topo_filho, x_filho, base_proj_final)
+        if "*" not in campos_finais:
+            topo_proj_final, base_proj_final = self._desenhar_no(x_filho, 40, "π", ", ".join(campos_finais))
+            self._linha(x_filho, topo_filho, x_filho, base_proj_final)
 
         bbox = self.canvas.bbox("all")
         if bbox:

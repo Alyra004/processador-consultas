@@ -7,15 +7,58 @@ class ParserSQL:
         self.condicoes_on = []
         self.condicoes_where = ""
         self.operadores = []
+        self.campos_condicoes = []
         self.erros = []
         
         self.operadores_validos = ['=', '>', '<', '<=', '>=', '<>', 'AND', '(', ')']
+        self.operadores_nao_suportados = ['OR', 'NOT', 'LIKE', 'IN', 'BETWEEN', 'IS', 'NULL']
+        self.padrao_campo = r'[A-Za-z_]\w*(\.[A-Za-z_]\w*)?'
+        self.padrao_numero = r'-?\d+(\.\d+)?'
 
     def _buscar(self, consulta, palavra, inicio=0):
         return re.compile(r'\b' + palavra + r'\b', re.IGNORECASE).search(consulta, inicio)
 
+    def _separar_tokens(self, bloco):
+        tratado = re.sub(r"'[^']*'|\"[^\"]*\"", ' #TEXTO# ', bloco)
+        
+        tratado = tratado.replace('>=', ' #MAIOR_IGUAL# ')
+        tratado = tratado.replace('<=', ' #MENOR_IGUAL# ')
+        tratado = tratado.replace('<>', ' #DIFERENTE# ')
+        
+        tratado = tratado.replace('=', ' = ').replace('>', ' > ').replace('<', ' < ')
+        tratado = tratado.replace('(', ' ( ').replace(')', ' ) ')
+        
+        tratado = tratado.replace('#MAIOR_IGUAL#', ' >= ')
+        tratado = tratado.replace('#MENOR_IGUAL#', ' <= ')
+        tratado = tratado.replace('#DIFERENTE#', ' <> ')
+        
+        return tratado.split()
+
+    def _analisar_condicao(self, bloco, clausula):
+        if not bloco:
+            self.erros.append(f"Erro Sintático: Cláusula {clausula} sem condição.")
+            return
+        
+        if bloco.count('(') != bloco.count(')'):
+            self.erros.append(f"Erro Sintático: Parênteses desbalanceados na cláusula {clausula} -> '{bloco}'")
+        
+        for token in self._separar_tokens(bloco):
+            token_maiusculo = token.upper()
+            
+            if token_maiusculo in self.operadores_validos:
+                self.operadores.append(token_maiusculo)
+            elif token == '#TEXTO#' or re.fullmatch(self.padrao_numero, token):
+                continue
+            elif token_maiusculo in self.operadores_nao_suportados:
+                self.erros.append(f"Erro Sintático: Operador não suportado na cláusula {clausula} -> '{token}'")
+            elif re.fullmatch(self.padrao_campo, token):
+                if token not in self.campos_condicoes:
+                    self.campos_condicoes.append(token)
+            else:
+                self.erros.append(f"Erro Léxico: Operador ou símbolo inválido na cláusula {clausula} -> '{token}'")
+
     def fazer_parse(self, consulta_sql):
-        consulta = " ".join(consulta_sql.split())
+        consulta = " ".join(consulta_sql.split()).rstrip(";").strip()
 
         m_select = self._buscar(consulta, "SELECT")
         m_from = self._buscar(consulta, "FROM")
@@ -24,9 +67,16 @@ class ParserSQL:
 
         idx_where = m_where.start() if m_where else -1
 
+        if not m_select or m_select.start() != 0:
+            self.erros.append("Erro Sintático: A consulta deve começar com o comando SELECT.")
+        if not m_from:
+            self.erros.append("Erro Sintático: Cláusula FROM não encontrada.")
+
         if m_select and m_from:
             bloco_select = consulta[m_select.end() : m_from.start()].strip()
             self.campos_select = [campo.strip() for campo in bloco_select.split(",")]
+            if "" in self.campos_select:
+                self.erros.append("Erro Sintático: Campo vazio ou ausente na cláusula SELECT.")
 
         if m_from:
             primeiro_inner = self._buscar(consulta, padrao_inner, m_from.end())
@@ -39,6 +89,9 @@ class ParserSQL:
                 
             bloco_from = consulta[m_from.end() : limite_from].strip()
             self.tabelas_from = [tabela.strip() for tabela in bloco_from.split(",")]
+            if "" in self.tabelas_from:
+                self.erros.append("Erro Sintático: Tabela vazia ou ausente na cláusula FROM.")
+                self.tabelas_from = [tabela for tabela in self.tabelas_from if tabela]
 
         m_inner = self._buscar(consulta, padrao_inner)
         
@@ -62,7 +115,9 @@ class ParserSQL:
                 
             tabela_join = consulta[m_inner.end() : limite_join].strip()
             
-            if tabela_join not in self.tabelas_from:
+            if not tabela_join:
+                self.erros.append("Erro Sintático: INNER JOIN sem tabela informada.")
+            elif tabela_join not in self.tabelas_from:
                 self.tabelas_from.append(tabela_join)
                 
             if m_on:
@@ -73,37 +128,15 @@ class ParserSQL:
                     limite_on = idx_where
                 
                 condicao = consulta[m_on.end() : limite_on].strip()
-                self.condicoes_on.append(condicao)
+                self._analisar_condicao(condicao, "ON")
+                if condicao:
+                    self.condicoes_on.append(condicao)
                 
             m_inner = m_proximo
 
         if m_where:
-            bloco_where = consulta[m_where.end() :].strip()
-            self.condicoes_where = bloco_where
-            
-            where_tratado = bloco_where
-            
-            where_tratado = where_tratado.replace('>=', ' #MAIOR_IGUAL# ')
-            where_tratado = where_tratado.replace('<=', ' #MENOR_IGUAL# ')
-            where_tratado = where_tratado.replace('<>', ' #DIFERENTE# ')
-            
-            where_tratado = where_tratado.replace('=', ' = ').replace('>', ' > ').replace('<', ' < ')
-            where_tratado = where_tratado.replace('(', ' ( ').replace(')', ' ) ')
-            
-            where_tratado = where_tratado.replace('#MAIOR_IGUAL#', ' >= ')
-            where_tratado = where_tratado.replace('#MENOR_IGUAL#', ' <= ')
-            where_tratado = where_tratado.replace('#DIFERENTE#', ' <> ')
-            
-            tokens_where = where_tratado.split()
-            
-            for token in tokens_where:
-                if token.upper() in self.operadores_validos:
-                    self.operadores.append(token.upper())
-                else:
-                    token_limpo = token.replace('.', '').replace("'", "").replace('"', '').replace('-', '').replace('_', '')
-                    
-                    if not token_limpo.isalnum() and token_limpo != "":
-                        self.erros.append(f"Erro Léxico: Operador ou símbolo inválido encontrado -> '{token}'")
+            self.condicoes_where = consulta[m_where.end() :].strip()
+            self._analisar_condicao(self.condicoes_where, "WHERE")
 
         return {
             "SELECT": self.campos_select,
@@ -111,5 +144,6 @@ class ParserSQL:
             "ON": self.condicoes_on,
             "WHERE": self.condicoes_where,
             "OPERADORES": self.operadores,
+            "CAMPOS_CONDICOES": self.campos_condicoes,
             "ERROS": self.erros
         }

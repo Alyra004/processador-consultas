@@ -111,18 +111,25 @@ def iniciar_processamento():
     analisador = ParserSQL()
     resultado = analisador.fazer_parse(consulta_digitada)
     
-    usuario = os.getenv("DB_USER")
-    senha = os.getenv("DB_PASSWORD")
+    erros = list(resultado["ERROS"])
     
-    validador = ValidadorDB(user=usuario, password=senha) 
-    erros = validador.validar_consulta(resultado)
-    validador.fechar_conexao()
+    if not erros:
+        usuario = os.getenv("DB_USER")
+        senha = os.getenv("DB_PASSWORD")
+        
+        validador = ValidadorDB(user=usuario, password=senha) 
+        erros = validador.validar_consulta(resultado)
+        if not erros:
+            resultado = validador.qualificar_campos(resultado)
+        validador.fechar_conexao()
     
     if erros:
         texto_saida = "❌ ERROS DE VALIDAÇÃO ENCONTRADOS:\n\n"
         for erro in erros:
             texto_saida += f"- {erro}\n"
         atualizar_resultado(texto_saida)
+        canvas_nao_otimizado.delete("all")
+        canvas_otimizado.delete("all")
     else:
         conversor_algebra = AlgebraRelacional(resultado)
         expressao_matematica = conversor_algebra.gerar_expressao_completa()
