@@ -13,9 +13,10 @@ Trabalho da disciplina de Banco de Dados: um processador de consultas com interf
 - **Heurísticas de otimização**:
   - redução de tuplas (seleções empurradas para as folhas)
   - redução de atributos (projeções empurradas para as folhas)
-  - reordenação das folhas pela seleção mais restritiva
+  - reordenação das folhas priorizando tabelas com menor quantidade de registros
   - eliminação de produtos cartesianos
 - **Plano de execução** com a ordem das operações e os resultados intermediários
+- **Suporte a dados mockados** para demonstrar variações de custos e ordens de execução
 
 ## Estrutura do Projeto
 
@@ -23,8 +24,9 @@ Trabalho da disciplina de Banco de Dados: um processador de consultas com interf
 |---|---|
 | `main.py` | Interface gráfica e orquestração do fluxo de processamento |
 | `parser_sql.py` | Parse da string SQL e validação léxica/sintática |
-| `validador_db.py` | Validação de tabelas e campos no banco `BD_Vendas` e qualificação de campos (`Tabela.campo`) |
-| `algebra_relacional.py` | Conversão para álgebra relacional (original e otimizada) |
+| `validador_db.py` | Validação de tabelas/campos no `BD_Vendas`, contagem de registros e qualificação (`Tabela.campo`) |
+| `dados_mock.py` | Contagens simuladas de registros e flag para alternar entre dados reais do MySQL e mock |
+| `algebra_relacional.py` | Conversão para álgebra relacional (canônica e otimizada) |
 | `otimizador.py` | Aplicação das heurísticas de otimização |
 | `gerador_grafo.py` | Desenho dos grafos de operadores no canvas |
 | `processador_consultas.py` | Construção do grafo em memória e geração do plano de execução |
@@ -37,12 +39,14 @@ flowchart TD
     B -->|erros léxicos/sintáticos| X["Exibe erros"]
     B --> C["Validação no banco (validador_db.py)"]
     C -->|tabela/campo inválido| X
-    C --> D["Álgebra relacional (algebra_relacional.py)"]
+    C --> D["Álgebra relacional canônica (algebra_relacional.py)"]
     D --> E["Otimização por heurísticas (otimizador.py)"]
     E --> F["Grafos não otimizado e otimizado (gerador_grafo.py)"]
     E --> G["Plano de execução (processador_consultas.py)"]
-    F --> H["Exibição na interface"]
-    G --> H
+    E --> H["Álgebra relacional otimizada (algebra_relacional.py)"]
+    F --> I["Exibição na interface"]
+    G --> I
+    H --> I
 ```
 
 ## Validações Realizadas
@@ -70,20 +74,13 @@ Cada condição do `WHERE`/`ON` que envolve só uma tabela vira uma seleção `�
 ### 2. Redução de atributos (projeção)
 Para cada tabela é criada uma projeção `π` com apenas os atributos usados no `SELECT` final ou nas condições de junção/seleção.
 
-### 3. Seleções mais restritivas primeiro
-As folhas da árvore são reordenadas pela **seletividade estimada** (fração de tuplas que satisfaz o predicado):
-
-| Predicado | Seletividade |
-|---|---|
-| Igualdade na chave primária (`Tabela.idTabela = x`) | 0,001 |
-| `=` | 0,1 |
-| `<`, `>`, `<=`, `>=` | 1/3 |
-| `<>` | 0,9 |
-
-Quando uma tabela tem várias seleções, as seletividades são multiplicadas. A tabela com o menor valor é processada primeiro.
+### 3. Tabelas menores primeiro (Cardinalidade / Restritividade)
+As folhas da árvore são reordenadas pela **quantidade de registros** de cada tabela no banco de dados (abordagem *Cost-Based*):
+- Tabelas com menos tuplas são processadas no início da árvore de junção para minimizar o tamanho dos resultados intermediários.
+- A contagem de registros pode vir diretamente do MySQL via `COUNT(*)` ou ser simulada através do arquivo `dados_mock.py` para fins de demonstração acadêmica.
 
 ### 4. Evitar produto cartesiano
-A árvore é montada de forma gulosa (*left-deep*): a cada passo, entre as tabelas restantes, é escolhida a mais restritiva **que possua predicado de junção** com as tabelas já unidas. O produto cartesiano (`X`) só aparece quando nenhuma condição liga as tabelas, e nesse caso a interface exibe um aviso.
+A árvore é montada de forma gulosa (*left-deep*): inicia-se pela tabela com menor número de registros. A cada passo, escolhe-se entre as tabelas restantes aquela que possui menor cardinalidade **e que tenha predicado de junção** com as tabelas já integradas. O produto cartesiano (`X`) só aparece quando nenhuma condição liga as tabelas restantes.
 
 ## Plano de Execução
 
@@ -130,7 +127,10 @@ Resultado final: R7
    > [!IMPORTANT]
    > Se o `.env` não for configurado ou a senha estiver incorreta para a instância local do MySQL, a validação acusará erro de conexão com o banco `BD_Vendas`.
 
-4. Execute a aplicação:
+4. (Opcional) Configuração de Dados Mockados:
+   No arquivo `dados_mock.py`, é possível ativar ou desativar simulações de cardinalidade alterando a variável `USAR_MOCK = True` (ou `False`) e editando as contagens de registros das tabelas para demonstrar a alternância da ordem das árvores de consulta.
+
+5. Execute a aplicação:
    ```powershell
    python main.py
    ```
@@ -139,20 +139,20 @@ Resultado final: R7
 
 **Consulta válida com junções e seleção**
 ```sql
-SELECT Cliente.Nome, Pedido.idPedido FROM Cliente
+SELECT Cliente.Nome, Pedido.idPedido, Status.Descricao FROM Cliente
 INNER JOIN Pedido ON Cliente.idCliente = Pedido.Cliente_idCliente
 INNER JOIN Status ON Status.idStatus = Pedido.Status_idStatus
 WHERE Status.idStatus = 1
 ```
-Ordem otimizada: `Status → Pedido → Cliente`, sem produto cartesiano.
+Se `Status` tiver menos registros que `Cliente` (ex: 3 vs 500), a ordem otimizada será: `Status → Pedido → Cliente`, sem produto cartesiano.
 
-**Seleção mais restritiva**
+**Demonstração de alternância de cardinalidade**
 ```sql
 SELECT Produto.Nome, Categoria.Descricao FROM Produto
 INNER JOIN Categoria ON Produto.Categoria_idCategoria = Categoria.idCategoria
-WHERE Produto.Preco > 100 AND Categoria.idCategoria = 2
 ```
-`Categoria` vem primeiro (igualdade na chave primária).
+- Se `Categoria` tiver menos registros que `Produto`, a ordem será `Categoria → Produto`.
+- Se `Produto` tiver menos registros, a ordem se inverte para `Produto → Categoria`.
 
 **Consultas inválidas**
 
@@ -197,4 +197,3 @@ WHERE Produto.Preco > 100 AND Categoria.idCategoria = 2
 
 - Não há suporte a aliases de tabelas (`FROM Cliente c`) nem a `OR`, `LIKE`, `IN`, subconsultas, `GROUP BY` ou `ORDER BY`, conforme o escopo do trabalho
 - Datas e textos devem estar entre aspas (`'2020-01-01'`)
-- A seletividade é estimada pelo tipo de operador, sem estatísticas reais do banco
