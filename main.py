@@ -8,6 +8,7 @@ from algebra_relacional import AlgebraRelacional
 from gerador_grafo import GeradorGrafo
 from otimizador import OtimizadorConsulta
 from processador_consultas import ProcessadorConsultas
+import dados_mock
 
 load_dotenv()
 
@@ -117,10 +118,14 @@ def iniciar_processamento():
         usuario = os.getenv("DB_USER")
         senha = os.getenv("DB_PASSWORD")
         
-        validador = ValidadorDB(user=usuario, password=senha) 
+        validador = ValidadorDB(user=usuario, password=senha)
         erros = validador.validar_consulta(resultado)
         if not erros:
             resultado = validador.qualificar_campos(resultado)
+            if dados_mock.USAR_MOCK:
+                contagens = {t: dados_mock.REGISTROS_MOCK.get(t, 0) for t in resultado.get("FROM", [])}
+            else:
+                contagens = validador.obter_quantidade_registros(resultado.get("FROM", []))
         validador.fechar_conexao()
     
     if erros:
@@ -134,9 +139,11 @@ def iniciar_processamento():
         conversor_algebra = AlgebraRelacional(resultado)
         expressao_matematica = conversor_algebra.gerar_expressao_completa()
         
-        otimizador = OtimizadorConsulta(resultado)
+        otimizador = OtimizadorConsulta(resultado, contagem_registros=contagens)
         dados_otimizados = otimizador.otimizar()
         expressao_otimizada = conversor_algebra.gerar_expressao_otimizada(dados_otimizados)
+        
+        origem_rotulo = "mock" if dados_mock.USAR_MOCK else "banco"
         
         texto_saida = "✅ CONSULTA VÁLIDA COM SUCESSO!\n\n"
         texto_saida += f"Resultado do Parse:\n{resultado}\n\n"
@@ -144,9 +151,9 @@ def iniciar_processamento():
         texto_saida += f"Álgebra Relacional Otimizada:\n{expressao_otimizada}\n\n"
         
         texto_saida += "Ordem das folhas (restritividade + junções sem produto cartesiano):\n"
-        seletividades = dados_otimizados.get("seletividades", {})
         for i, tabela in enumerate(dados_otimizados.get("ordem_tabelas", []), start=1):
-            texto_saida += f"{i}. {tabela} (seletividade estimada: {seletividades.get(tabela, 1.0):.3f})\n"
+            qtd = contagens.get(tabela, 0)
+            texto_saida += f"{i}. {tabela} (registros no {origem_rotulo}: {qtd})\n"
         
         for juncao in dados_otimizados.get("juncoes", []):
             if juncao["cartesiano"]:

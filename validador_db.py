@@ -104,6 +104,20 @@ class ValidadorDB:
         dados_qualificados["CAMPOS_CONDICOES"] = [self._qualificar_texto(campo) for campo in dados_parse.get("CAMPOS_CONDICOES", [])]
         return dados_qualificados
 
+    def obter_quantidade_registros(self, tabelas):
+        contagens = {}
+        if self.conexao and self.conexao.is_connected():
+            cursor = self.conexao.cursor()
+            for tabela in tabelas:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) FROM `{tabela}`")
+                    qtd = cursor.fetchone()[0]
+                    contagens[tabela] = qtd
+                except Exception:
+                    contagens[tabela] = 0
+            cursor.close()
+        return contagens
+
     def fechar_conexao(self):
         if self.conexao and self.conexao.is_connected():
             self.conexao.close()

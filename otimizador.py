@@ -1,19 +1,17 @@
 import re
 
 class OtimizadorConsulta:
-    # Seletividade estimada por operador (fração de tuplas que satisfaz o predicado).
-    # Quanto menor o valor, mais restritiva é a operação.
-    SELETIVIDADE_OPERADOR = {
-        "=": 0.1,
-        "<": 1 / 3,
-        ">": 1 / 3,
-        "<=": 1 / 3,
-        ">=": 1 / 3,
-        "<>": 0.9,
-    }
-    SELETIVIDADE_CHAVE_PRIMARIA = 0.001  # igualdade na PK retorna no máximo uma tupla
+    #SELETIVIDADE_OPERADOR = {
+    #    "=": 0.1,
+    #    "<": 1 / 3,
+    #    ">": 1 / 3,
+    #    "<=": 1 / 3,
+    #   ">=": 1 / 3,
+    #    "<>": 0.9,
+    #}
+    #SELETIVIDADE_CHAVE_PRIMARIA = 0.001  # igualdade na PK retorna no máximo uma tupla
 
-    def __init__(self, dados_parse):
+    def __init__(self, dados_parse, contagem_registros=None):
         self.dados = dados_parse
         self.tabelas = dados_parse.get("FROM", [])
         self.campos_select = dados_parse.get("SELECT", [])
@@ -34,6 +32,7 @@ class OtimizadorConsulta:
         self.seletividade_tabela = {tabela: 1.0 for tabela in self.tabelas}
         self.ordem_tabelas = list(self.tabelas)
         self.juncoes_ordenadas = []
+        self.contagem_registros = contagem_registros or {t: 0 for t in self.tabelas}
 
     def _limpar_parenteses(self, condicao):
         # Remove parênteses que ficaram desbalanceados após dividir por AND
@@ -55,19 +54,19 @@ class OtimizadorConsulta:
                 tabelas_envolvidas.append(tabela)
         return tabelas_envolvidas
 
-    def _estimar_seletividade(self, condicao, tabela=None):
-        m = re.search(r'(<=|>=|<>|=|<|>)', condicao)
-        if not m:
-            return 1.0
-        operador = m.group(1)
+    #def _estimar_seletividade(self, condicao, tabela=None):
+    #    m = re.search(r'(<=|>=|<>|=|<|>)', condicao)
+    #    if not m:
+    #        return 1.0
+    #    operador = m.group(1)
 
-        if operador == "=" and tabela:
-            lados = [lado.strip() for lado in condicao.split("=", 1)]
-            chave_primaria = f"{tabela}.id{tabela}".upper()
-            if any(lado.upper() == chave_primaria for lado in lados):
-                return self.SELETIVIDADE_CHAVE_PRIMARIA
+    #    if operador == "=" and tabela:
+    #        lados = [lado.strip() for lado in condicao.split("=", 1)]
+    #       chave_primaria = f"{tabela}.id{tabela}".upper()
+    #        if any(lado.upper() == chave_primaria for lado in lados):
+    #            return self.SELETIVIDADE_CHAVE_PRIMARIA
 
-        return self.SELETIVIDADE_OPERADOR.get(operador, 1.0)
+    #    return self.SELETIVIDADE_OPERADOR.get(operador, 1.0)
 
     def aplicar_heuristica_selecao(self):
         
@@ -113,15 +112,7 @@ class OtimizadorConsulta:
             self.projecoes_por_tabela[tabela] = sorted(self.projecoes_por_tabela[tabela])
 
     def aplicar_heuristica_restritividade(self):
-        # Estima o quão restritiva é cada folha (tabela + suas seleções)
-        for tabela in self.tabelas:
-            seletividade = 1.0
-            for condicao in self.selecoes_por_tabela.get(tabela, []):
-                seletividade *= self._estimar_seletividade(condicao, tabela)
-            self.seletividade_tabela[tabela] = seletividade
-
-        # Ordenação estável: em caso de empate mantém a ordem original do FROM
-        self.ordem_tabelas = sorted(self.tabelas, key=lambda t: self.seletividade_tabela[t])
+        self.ordem_tabelas = sorted(self.tabelas, key=lambda t: self.contagem_registros.get(t, 0))
 
     def aplicar_heuristica_evitar_produto_cartesiano(self):
         if not self.tabelas:
@@ -136,8 +127,6 @@ class OtimizadorConsulta:
             melhor_tabela = None
             melhor_custo = None
 
-            # Procura, entre as tabelas restantes, as que possuem predicado de
-            # junção com o conjunto já unido, escolhendo a mais restritiva.
             for tabela in restantes:
                 conjunto = set(ordem_final) | {tabela}
                 conds = [j for j in juncoes_pendentes
@@ -145,16 +134,11 @@ class OtimizadorConsulta:
                 if not conds:
                     continue
 
-                seletividade_juncao = 1.0
-                for j in conds:
-                    seletividade_juncao *= self._estimar_seletividade(j["condicao"])
-                custo = self.seletividade_tabela[tabela] * seletividade_juncao
+                custo = self.contagem_registros.get(tabela, 0)
 
                 if melhor_custo is None or custo < melhor_custo:
                     melhor_tabela, melhor_custo = tabela, custo
 
-            # Nenhuma tabela conectada: produto cartesiano é inevitável,
-            # usa a próxima mais restritiva.
             if melhor_tabela is None:
                 melhor_tabela = restantes[0]
 
